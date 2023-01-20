@@ -89,3 +89,4 @@ docs/
 
 # .env file used in vscode to define local environment variables
 .env
+.vs

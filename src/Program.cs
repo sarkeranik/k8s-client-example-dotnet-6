@@ -6,7 +6,10 @@ using k8s.Models;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using k8s.Autorest;
-
+using System.ComponentModel;
+using System.Linq;
+using System.Xml.Linq;
+using k8s;
 
 namespace complete
 {
@@ -66,7 +69,7 @@ namespace complete
             // objects a list used to store the objects
             List<IKubernetesObject> objects = new List<IKubernetesObject>();
 
-
+            
             /// create the resources definitions:
             /// the order is important here. The secret and configmaps will be used
             /// when deploying the deployment
@@ -98,7 +101,24 @@ namespace complete
 
             // deploy all objects to K8s
             await DeployAll(objects);
+            Thread.Sleep(2000);
 
+
+            // Read the list of pods contained in default namespace
+            //var list = client.CoreV1.ListNamespacedPod();
+
+            //// Print the name of pods 
+            //foreach (var item in list.Items)
+            //{
+            //    Console.WriteLine(item.Metadata.Name);
+            //}
+            //// Or empty if there are no pods
+            //if (list.Items.Count == 0)
+            //{
+            //    Console.WriteLine("Empty!");
+            //}
+            //WatchUsingCallback(client);
+            await PrintPodLabels(client);
         }
 
         /// <summary>
@@ -189,5 +209,118 @@ namespace complete
                 _ => throw new InvalidCastException($"Cannot cast {kubernetesObject.Kind} to a k8s class"),
             };
         }
+
+        private static async Task NodesMetrics(IKubernetes client)
+        {
+            var nodesMetrics = await client.GetKubernetesNodesMetricsAsync().ConfigureAwait(false);
+
+            foreach (var item in nodesMetrics.Items)
+            {
+                Console.WriteLine(item.Metadata.Name);
+
+                foreach (var metric in item.Usage)
+                {
+                    Console.WriteLine($"{metric.Key}: {metric.Value}");
+                }
+            }
+        }
+
+        private static async Task PodsMetrics(IKubernetes client)
+        {
+            var podsMetrics = await client.GetKubernetesPodsMetricsAsync().ConfigureAwait(false);
+
+            if (!podsMetrics.Items.Any())
+            {
+                Console.WriteLine("Empty");
+            }
+
+            foreach (var item in podsMetrics.Items)
+            {
+                foreach (var container in item.Containers)
+                {
+                    Console.WriteLine(container.Name);
+
+                    foreach (var metric in container.Usage)
+                    {
+                        Console.WriteLine($"{metric.Key}: {metric.Value}");
+                    }
+                }
+
+                Console.Write(Environment.NewLine);
+            }
+        }
+
+        private static void WatchUsingCallback(IKubernetes client)
+        {
+            var podlistResp = client.CoreV1.ListNamespacedPodWithHttpMessagesAsync("default", watch: true);
+            using (podlistResp.Watch<V1Pod, V1PodList>((type, item) =>
+                   {
+                       Console.WriteLine("==on watch event==");
+                       Console.WriteLine(type);
+                       Console.WriteLine(item.Metadata.Name);
+                       Console.WriteLine("==on watch event==");
+                   }))
+            {
+                Console.WriteLine("press ctrl + c to stop watching");
+
+                var ctrlc = new ManualResetEventSlim(false);
+                Console.CancelKeyPress += (sender, eventArgs) => ctrlc.Set();
+                ctrlc.Wait();
+            }
+        }
+
+        private static async Task PrintPodLogs(IKubernetes client)
+        {
+            var list = client.CoreV1.ListNamespacedPod("default");
+            if (list.Items.Count == 0)
+            {
+                Console.WriteLine("No pods!");
+                return;
+            }
+
+            var pod = list.Items[0];
+
+            var response = await client.CoreV1.ReadNamespacedPodLogWithHttpMessagesAsync(
+                pod.Metadata.Name,
+                pod.Metadata.NamespaceProperty, container: pod.Spec.Containers[0].Name, follow: true).ConfigureAwait(false);
+            var stream = response.Body;
+            stream.CopyTo(Console.OpenStandardOutput());
+        }
+
+        private static async Task PrintPodLabels(IKubernetes client)
+        {
+            var list = client.CoreV1.ListNamespacedService("default");
+            foreach (var item in list.Items)
+            {
+                Console.WriteLine("Pods for service: " + item.Metadata.Name);
+                Console.WriteLine("=-=-=-=-=-=-=-=-=-=-=");
+                if (item.Spec == null || item.Spec.Selector == null)
+                {
+                    continue;
+                }
+
+                var labels = new List<string>();
+                foreach (var key in item.Spec.Selector)
+                {
+                    labels.Add(key.Key + "=" + key.Value);
+                }
+
+                var labelStr = string.Join(",", labels.ToArray());
+                Console.WriteLine(labelStr);
+                var podList = client.CoreV1.ListNamespacedPod("default", labelSelector: labelStr);
+                foreach (var pod in podList.Items)
+                {
+                    Console.WriteLine(pod.Metadata.Name);
+                }
+
+                if (podList.Items.Count == 0)
+                {
+                    Console.WriteLine("Empty!");
+                }
+
+                Console.WriteLine();
+            }
+        }
+
     }
 }
