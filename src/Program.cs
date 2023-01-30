@@ -322,5 +322,53 @@ namespace complete
             }
         }
 
+        private static async Task PrintKubernetesMetrics(Kubernetes client)
+        {
+            var nodesMetrics = await client.GetKubernetesNodesMetricsAsync();
+            foreach (var metric in nodesMetrics.Items)
+            {
+                Console.WriteLine("Node: " + metric.Metadata.Name);
+                Console.WriteLine("CPU Usage: " + metric.Usage["cpu"]);
+                Console.WriteLine("Memory Usage: " + metric.Usage["memory"]);
+            }
+
+            // Retrieve the metrics for all pods in the cluster
+            var podsMetrics = await client.GetKubernetesPodsMetricsAsync();
+            foreach (var metric in podsMetrics.Items)
+            {
+                Console.WriteLine("Pod: " + metric.Metadata.Name);
+                Console.WriteLine("CPU Usage: " + metric.Containers[0].Usage["cpu"]);
+                Console.WriteLine("Memory Usage: " + metric.Containers[0].Usage["memory"]);
+            }
+
+            // Retrieve the metrics for all deployment in the cluster
+            var deploymentsMetrics = await client.ListDeploymentForAllNamespacesAsync();
+            foreach (var deployment in deploymentsMetrics.Items)
+            {
+                Console.WriteLine("Deployment: " + deployment.Metadata.Name);
+                Console.WriteLine("Replicas: " + deployment.Status.Replicas);
+                Console.WriteLine("Available Replicas: " + deployment.Status.AvailableReplicas);
+                Console.WriteLine("Unavailable Replicas: " + deployment.Status.UnavailableReplicas);
+            }
+
+            // Retrieve the metrics for all services in a specific namespace
+            var servicesMetrics = await client.ListNamespacedServiceAsync("default");
+            foreach (var service in servicesMetrics.Items)
+            {
+                Console.WriteLine("Service: " + service.Metadata.Name);
+                Console.WriteLine("Namespace: " + service.Metadata.Namespace);
+                Console.WriteLine("Cluster IP: " + service.Spec.ClusterIP);
+                Console.WriteLine("External IPs: " + string.Join(",", service.Spec.ExternalIPs));
+                Console.WriteLine("Ports: ");
+                foreach (var port in service.Spec.Ports)
+                {
+                    Console.WriteLine("Name: " + port.Name);
+                    Console.WriteLine("Port: " + port.Port);
+                    Console.WriteLine("Protocol: " + port.Protocol);
+                }
+            }
+
+        }
+
     }
 }
